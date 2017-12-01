@@ -53,11 +53,8 @@ extern "C" {
 #include <fstream>
 #include <sstream>
 
-
-
 using namespace std;
 
-//static const char *filter_descr = "aresample=8000,aformat=sample_fmts=s16:channel_layouts=mono";
 static const char *filter_descr = "aresample=8000";
 static const char *player       = "ffplay -f s16le -ar 8000 -ac 1 -";
 
@@ -235,19 +232,6 @@ static void recognoize(AVCodecContext * dec_ctx,const AVFrame * frame, Nls * nls
         i++;
     }
     fwrite(buf, 1, n*2, outfile);
-
-    /*
-    i = 0;
-    while (i < n) {
-        //fprintf(stdout, "%x%x ", *p & 0xff, *p>>8 & 0xff);
-        fputc(*p    & 0xff, outfile);
-        fputc(*p>>8 & 0xff, outfile);
-        i++;
-    }
-    */
- 
-    //fwrite(p, 1, n, outfile);
-
     nanosleep((const struct timespec[]){{0,  20000000L}}, NULL);
     
     data_size = av_get_bytes_per_sample(dec_ctx->sample_fmt);
@@ -283,6 +267,11 @@ static void print_frame(const AVFrame *frame, FILE*outfile)
 
 int main(int argc, char *argv[])
 {
+		if(argc<2){
+        fprintf(stdout,"usage:./demo xxx.mp3\n");
+        return -1;
+    }
+    
     int port = 443;
     string ip = "nls-trans.dataapi.aliyun.com";
     string id = "fQ0sCAzPbJJZgYMo";                  //  id
@@ -301,13 +290,12 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-
-    FILE *outfile;
+    FILE *outfile = NULL;
     outfile = fopen("/tmp/test.pcm", "wb");
     if (!outfile) {
         exit(1);
     }
-
+		
     int ret;
     AVPacket packet;
     AVFrame *frame = av_frame_alloc();
@@ -317,18 +305,14 @@ int main(int argc, char *argv[])
         perror("Could not allocate frame");
         exit(1);
     }
-    /*
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s file | %s\n", argv[0], player);
-        exit(1);
-    }
-    */
-
+ 
     av_register_all();
     avformat_network_init();
     avfilter_register_all();
-
-    char file_url[] = "http://v.videoincloud.com/gd/20170425/NeVMXK/NeVMXK.m3u8";
+		
+    //char file_url[] = "http://v.videoincloud.com/gd/20170425/NeVMXK/NeVMXK.m3u8";
+    char file_url[256];
+    strcpy(file_url, argv[1]);
     if ((ret = open_input_file(file_url)) < 0)
         goto end;
     if ((ret = init_filters(filter_descr)) < 0)
@@ -338,14 +322,12 @@ int main(int argc, char *argv[])
     while (1) {
         if ((ret = av_read_frame(fmt_ctx, &packet)) < 0)
             break;
-
         if (packet.stream_index == audio_stream_index) {
             ret = avcodec_send_packet(dec_ctx, &packet);
             if (ret < 0) {
                 av_log(NULL, AV_LOG_ERROR, "Error while sending a packet to the decoder\n");
                 break;
             }
-
             while (ret >= 0) {
                 ret = avcodec_receive_frame(dec_ctx, frame);
                 if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
@@ -354,14 +336,12 @@ int main(int argc, char *argv[])
                     av_log(NULL, AV_LOG_ERROR, "Error while receiving a frame from the decoder\n");
                     goto end;
                 }
-
                 if (ret >= 0) {
                     /* push the audio data from decoded frame into the filtergraph */
                     if (av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF) < 0) {
                         av_log(NULL, AV_LOG_ERROR, "Error while feeding the audio filtergraph\n");
                         break;
                     }
-
                     /* pull filtered audio from the filtergraph */
                     while (1) {
                         ret = av_buffersink_get_frame(buffersink_ctx, filt_frame);
@@ -371,7 +351,6 @@ int main(int argc, char *argv[])
                             goto end;
 
                         recognoize(dec_ctx, filt_frame, &nls, outfile);
-                        //print_frame(filt_frame, outfile);
                         av_frame_unref(filt_frame);
                         //goto end;
                     }
