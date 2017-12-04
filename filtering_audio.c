@@ -53,8 +53,11 @@ extern "C" {
 #include <fstream>
 #include <sstream>
 
-using namespace std;
+#include "jason.h"
+#include <stdio.h>
 
+using namespace std;
+static const char *status_code = "\"status_code\":0";
 static const char *filter_descr = "aresample=8000";
 static const char *player       = "ffplay -f s16le -ar 8000 -ac 1 -";
 
@@ -219,7 +222,7 @@ end:
 
     return ret;
 }
-static void recognoize(AVCodecContext * dec_ctx,const AVFrame * frame, Nls * nls, FILE*outfile){
+static void recognoize(AVCodecContext * dec_ctx,const AVFrame * frame, Nls * nls){//, FILE*outfile){
     int i, ch, data_size;
     char buf[1024];
     const int n = frame->nb_samples * av_get_channel_layout_nb_channels(frame->channel_layout);
@@ -231,7 +234,7 @@ static void recognoize(AVCodecContext * dec_ctx,const AVFrame * frame, Nls * nls
         buf[i] = p[i] & 0xff;
         i++;
     }
-    fwrite(buf, 1, n*2, outfile);
+    //fwrite(buf, 1, n*2, outfile);
     nanosleep((const struct timespec[]){{0,  20000000L}}, NULL);
     
     data_size = av_get_bytes_per_sample(dec_ctx->sample_fmt);
@@ -265,13 +268,131 @@ static void print_frame(const AVFrame *frame, FILE*outfile)
     //fflush(stdout);
 }
 
-int main(int argc, char *argv[])
+
+
+int test_jason()
 {
-		if(argc<2){
-        fprintf(stdout,"usage:./demo xxx.mp3\n");
-        return -1;
+    const char *json = "{\"Users\":[{\"Name\":\"John\",\"Age\":25,\"Salary\":20000},{\"Name\":\"Mary\",\"Age\":42,\"Salary\":45000}]}";
+    
+    jason jason;
+    memset(&jason, 0, sizeof(jason));
+    
+    jasonStatus status = jason_Deserialize(&jason, json, (int32_t)strlen(json));
+    
+    if(status != jasonStatus_Finished)
+    {
+        printf("%s: \"%.50s...\"\n", jasonStatus_Describe(status), jason.ParsePosition);
+    }
+    else
+    {
+        jasonValue *usersList = jason_HashLookup(&jason, jason.RootValue, "Users", strlen("Users"));
+        if(usersList != NULL)
+        {
+            for(jasonValue *user = jasonValue_GetFirstChild(usersList); user != NULL; user = jasonValue_GetNextSibling(user))
+            {
+                jasonValue *name = jason_HashLookup(&jason, user, "Name", strlen("Name"));
+                jasonValue *age = jason_HashLookup(&jason, user, "Age", strlen("Age"));
+                jasonValue *salary = jason_HashLookup(&jason, user, "Salary", strlen("Salary"));
+                
+                if(name != NULL)
+                {
+                    printf("Name: %.*s\n", jasonValue_GetValueLen(name), jasonValue_GetValue(name));
+                }
+                
+                if(age != NULL)
+                {
+                    printf("Age: %i\n", atoi(jasonValue_GetValue(age)));
+                }
+                
+                if(salary != NULL)
+                {
+                    printf("Salary: %f\n", atof(jasonValue_GetValue(salary)));
+                }
+            }
+        }
     }
     
+    jason_Cleanup(&jason);
+    return 0;
+}
+
+
+
+char* prase_jason(char* json)
+{
+   	char begintime[16], endtime[16], respond[2048];
+   	char *pstr;
+   	//jasonValue *begin_time, end_time,sentence_id, status_code, text;
+    jason jason;
+    memset(&jason, 0, sizeof(jason));
+    
+    jasonStatus status = jason_Deserialize(&jason, json, (int32_t)strlen(json));
+    
+    if(status != jasonStatus_Finished)
+    {
+        printf("%s: \"%.50s...\"\n", jasonStatus_Describe(status), jason.ParsePosition);
+    }else{
+		    jasonValue *begin_time = jason_HashLookup(&jason, jason.RootValue, "begin_time", strlen("begin_time"));
+		    jasonValue *end_time = jason_HashLookup(&jason, jason.RootValue, "end_time", strlen("end_time"));
+		    jasonValue *sentence_id = jason_HashLookup(&jason, jason.RootValue, "sentence_id", strlen("sentence_id"));
+		    jasonValue *status_code = jason_HashLookup(&jason, jason.RootValue, "status_code", strlen("status_code"));
+		    jasonValue *text = jason_HashLookup(&jason, jason.RootValue, "text", strlen("text"));
+		    
+		    if(begin_time != NULL)
+		    {
+		    		int btime = atoi(jasonValue_GetValue(begin_time))/2000;
+						sprintf(begintime, "%02d:%02d:%02d", btime/3600, (btime%3600)/60, btime%60);
+		        printf("begintime: %s\n", begintime);
+		    }
+		    
+		    if(end_time != NULL)
+		    {
+		    		int etime = atoi(jasonValue_GetValue(end_time))/2000;
+						sprintf(endtime, "%02d:%02d:%02d", etime/3600, (etime%3600)/60, etime%60);
+		        printf("endtime: %s\n", endtime);
+		    }
+		    
+		    if(sentence_id != NULL)
+		    {
+		        printf("sentence_id: %d\n", atoi(jasonValue_GetValue(sentence_id)));
+		    }
+		    if(status_code != NULL)
+		    {
+		        printf("status_code: %d\n", atoi(jasonValue_GetValue(status_code)));
+		    }
+		    if(text != NULL)
+		    {
+		        //printf("text: %s\n", jasonValue_GetValue(text));
+		        pstr = strtok(jasonValue_GetValue(text), "\"");
+		    }
+		    sprintf(respond, "%d\n%s,0 --> %s,0\n%s\n\n", atoi(jasonValue_GetValue(sentence_id)), begintime, endtime, pstr);
+  	}
+  	
+    jason_Cleanup(&jason);
+    return respond;
+}
+
+
+static char* parse_result(char* str)
+{
+	int i;
+	char *delim = "{";
+	char *pstr = NULL;
+	char result[2048] ;
+
+	pstr = strtok(str, delim);
+	if ((pstr = strtok(NULL, delim)) != NULL)
+	{
+	}
+	sprintf(result, "{%s", pstr);
+	return result;
+}
+
+int main(int argc, char *argv[])
+{
+		static FILE*fp=NULL;
+		char result[2048];
+		char file_line[2048];
     int port = 443;
     string ip = "nls-trans.dataapi.aliyun.com";
     string id = "fQ0sCAzPbJJZgYMo";                  //  id
@@ -282,20 +403,28 @@ int main(int argc, char *argv[])
     nls.setResponseMode(0);
     nls.setApp_key("nls-service-multi-domain"); //key
     nls.authorize(id, scret);
+    
     nls._onResultReceivedEvent = ([&](string str) {
-        cout << ">>>>>" << str << endl;
+    		const char *p = str.c_str();
+        if(strstr(p, status_code) != NULL){
+        	cout << ">>>>>" << str << endl;
+        	strcpy(result,parse_result(p));
+        	strcpy(file_line,prase_jason(result)); 
+        	
+          if(NULL==fp)
+              fp=fopen("1.srt","wb");
+          if(fp)
+          {
+              fwrite(file_line,1,strlen(file_line),fp);
+              fflush(fp);
+          }
+        }
     });
     if (nls.startNls() == false)
     {
         return 0;
     }
-
-    FILE *outfile = NULL;
-    outfile = fopen("/tmp/test.pcm", "wb");
-    if (!outfile) {
-        exit(1);
-    }
-		
+    
     int ret;
     AVPacket packet;
     AVFrame *frame = av_frame_alloc();
@@ -310,9 +439,12 @@ int main(int argc, char *argv[])
     avformat_network_init();
     avfilter_register_all();
 		
-    //char file_url[] = "http://v.videoincloud.com/gd/20170425/NeVMXK/NeVMXK.m3u8";
     char file_url[256];
-    strcpy(file_url, argv[1]);
+    if(argc<2){
+    		strcpy(file_url, "http://v.videoincloud.com/gd/20170425/NeVMXK/NeVMXK.m3u8");
+    }else{
+    		strcpy(file_url, argv[1]);
+  	}
     if ((ret = open_input_file(file_url)) < 0)
         goto end;
     if ((ret = init_filters(filter_descr)) < 0)
@@ -349,8 +481,8 @@ int main(int argc, char *argv[])
                             break;
                         if (ret < 0)
                             goto end;
-
-                        recognoize(dec_ctx, filt_frame, &nls, outfile);
+												recognoize(dec_ctx, filt_frame, &nls);
+                        //recognoize(dec_ctx, filt_frame, &nls, outfile);
                         av_frame_unref(filt_frame);
                         //goto end;
                     }
@@ -361,16 +493,17 @@ int main(int argc, char *argv[])
         av_packet_unref(&packet);
     }
 end:
+		fclose(fp);
     avfilter_graph_free(&filter_graph);
     avcodec_free_context(&dec_ctx);
     avformat_close_input(&fmt_ctx);
     av_frame_free(&frame);
     av_frame_free(&filt_frame);
-
+	
     if (ret < 0 && ret != AVERROR_EOF) {
         fprintf(stderr, "Error occurred: %s\n", (ret));
         exit(1);
     }
-
+		
     exit(0);
 }
