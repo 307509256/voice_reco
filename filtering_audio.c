@@ -56,6 +56,7 @@ extern "C" {
 #include "jason.h"
 #include <stdio.h>
 
+
 using namespace std;
 static const char *status_code = "\"status_code\":0";
 static const char *filter_descr = "aresample=8000";
@@ -67,6 +68,13 @@ AVFilterContext *buffersink_ctx;
 AVFilterContext *buffersrc_ctx;
 AVFilterGraph *filter_graph;
 static int audio_stream_index = -1;
+
+typedef enum _AV_FILE_s
+{
+	NETWORK_FILE,
+	AUDIO_FILE,
+	VIDEO_FILE
+}_AV_FILE_t;
 
 static int open_input_file(const char *filename)
 {
@@ -318,7 +326,7 @@ int test_jason()
 
 
 
-char* prase_jason(char* json)
+char* prase_jason(char* json, int av_flag)
 {
    	char begintime[16], endtime[16], respond[2048];
    	char *pstr;
@@ -340,15 +348,20 @@ char* prase_jason(char* json)
 		    
 		    if(begin_time != NULL)
 		    {
-		    		int btime = atoi(jasonValue_GetValue(begin_time))/2000;
-						sprintf(begintime, "%02d:%02d:%02d", btime/3600, (btime%3600)/60, btime%60);
-		        printf("begintime: %s\n", begintime);
+				int btime = atoi(jasonValue_GetValue(begin_time))/2000;
+				if(av_flag == VIDEO_FILE){  //video  
+				    sprintf(begintime, "%02d:%02d:%02d", btime/3600, (btime%3600)/60, btime%60);
+		            printf("begintime: %s\n", begintime);
+    		    }else if (av_flag == AUDIO_FILE){ //audio  mp3
+				    sprintf(begintime, "%02d:%02d", (btime%3600)/60, btime%60);
+		            printf("begintime: %s\n", begintime);
+    		    }
 		    }
 		    
 		    if(end_time != NULL)
 		    {
-		    		int etime = atoi(jasonValue_GetValue(end_time))/2000;
-						sprintf(endtime, "%02d:%02d:%02d", etime/3600, (etime%3600)/60, etime%60);
+		    	int etime = atoi(jasonValue_GetValue(end_time))/2000;
+				sprintf(endtime, "%02d:%02d:%02d", etime/3600, (etime%3600)/60, etime%60);
 		        printf("endtime: %s\n", endtime);
 		    }
 		    
@@ -365,7 +378,11 @@ char* prase_jason(char* json)
 		        //printf("text: %s\n", jasonValue_GetValue(text));
 		        pstr = strtok(jasonValue_GetValue(text), "\"");
 		    }
-		    sprintf(respond, "%d\n%s,0 --> %s,0\n%s\n\n", atoi(jasonValue_GetValue(sentence_id)), begintime, endtime, pstr);
+		    if(av_flag == VIDEO_FILE){  //video  
+		    	sprintf(respond, "%d\n%s,0 --> %s,0\n%s\n\n", atoi(jasonValue_GetValue(sentence_id)), begintime, endtime, pstr);
+		    }else if (av_flag == AUDIO_FILE){ //audio  mp3
+		    	sprintf(respond, "[%s]%s\n", begintime, pstr);
+		    }
   	}
   	
     jason_Cleanup(&jason);
@@ -375,7 +392,6 @@ char* prase_jason(char* json)
 
 static char* parse_result(char* str)
 {
-	int i;
 	char *delim = "{";
 	char *pstr = NULL;
 	char result[2048] ;
@@ -390,9 +406,34 @@ static char* parse_result(char* str)
 
 int main(int argc, char *argv[])
 {
-		static FILE*fp=NULL;
-		char result[2048];
-		char file_line[2048];
+	int flag_av = NETWORK_FILE;
+	char file_url[256];
+	char tmp[256];
+	static FILE*fp=NULL;
+		
+    if(argc<2){
+    	strcpy(file_url, "http://v.videoincloud.com/gd/20170425/NeVMXK/NeVMXK.m3u8");
+    }else{
+		strcpy(file_url, argv[1]);
+		strcpy(tmp, argv[1]);
+		if(NULL==fp){
+			char *pstr = NULL;
+			char file_name[1024] ;
+    		if(strstr(tmp, ".mp3")){
+				pstr = strtok(tmp, ".");
+				sprintf(file_name, "%s.lrc", pstr);
+				flag_av = AUDIO_FILE;
+    		}else{
+    		    pstr = strtok(tmp, ".");
+    			sprintf(file_name, "%s.srt", pstr);
+    			flag_av = VIDEO_FILE;
+    		}
+    	    fp=fopen(file_name,"wb");
+		}
+  	}
+ 
+	char result[2048];
+	char file_line[2048];
     int port = 443;
     string ip = "nls-trans.dataapi.aliyun.com";
     string id = "fQ0sCAzPbJJZgYMo";                  //  id
@@ -409,10 +450,8 @@ int main(int argc, char *argv[])
         if(strstr(p, status_code) != NULL){
         	cout << ">>>>>" << str << endl;
         	strcpy(result,parse_result(p));
-        	strcpy(file_line,prase_jason(result)); 
+        	strcpy(file_line,prase_jason(result, flag_av)); 
         	
-          if(NULL==fp)
-              fp=fopen("1.srt","wb");
           if(fp)
           {
               fwrite(file_line,1,strlen(file_line),fp);
@@ -439,12 +478,7 @@ int main(int argc, char *argv[])
     avformat_network_init();
     avfilter_register_all();
 		
-    char file_url[256];
-    if(argc<2){
-    		strcpy(file_url, "http://v.videoincloud.com/gd/20170425/NeVMXK/NeVMXK.m3u8");
-    }else{
-    		strcpy(file_url, argv[1]);
-  	}
+    
     if ((ret = open_input_file(file_url)) < 0)
         goto end;
     if ((ret = init_filters(filter_descr)) < 0)
@@ -493,7 +527,7 @@ int main(int argc, char *argv[])
         av_packet_unref(&packet);
     }
 end:
-		fclose(fp);
+	fclose(fp);
     avfilter_graph_free(&filter_graph);
     avcodec_free_context(&dec_ctx);
     avformat_close_input(&fmt_ctx);
