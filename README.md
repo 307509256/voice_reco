@@ -8,5 +8,8 @@ export LD_LIBRARY_PATH=":./"
 sh setenv.sh
 ```
 ```
+sh build.sh
+```
+```
 sh label.sh mp3
 ```
